@@ -57,7 +57,7 @@ cp .env.example .env
 php artisan key:generate
 ```
 ※`.env`のDB接続情報を必要に応じて以下のように変更してください
-```
+```dotenv
 DB_CONNECTION=mysql
 DB_HOST=mysql
 DB_PORT=3306
