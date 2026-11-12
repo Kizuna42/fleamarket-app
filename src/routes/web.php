@@ -62,7 +62,7 @@ Route::middleware('auth')->group(function () {
 });
 
 Route::middleware('auth')->group(function () {
-    Route::post('/purchases/{item}/create-session', [PurchaseController::class, 'createSession']);
+    Route::post('/purchases/{item}/create-session', [PurchaseController::class, 'createSession'])->name('purchases.create-session');
 });
 
 // 支払い方法の更新

@@ -65,7 +65,7 @@ DB_DATABASE=laravel_db
 DB_USERNAME=laravel_user
 DB_PASSWORD=laravel_pass
 ```
-※クレジットカード決済（Stripe）を利用する場合は、`.env`の`STRIPE_KEY`・`STRIPE_SECRET`にStripeのテスト用キーを設定してください
+※クレジットカード決済（Stripe Checkout）を利用する場合は、`.env`の`STRIPE_SECRET`にStripeのテスト用キーを設定してください（カード払いはStripeの決済画面へ遷移し、決済完了後に購入が確定します。コンビニ払いは購入ボタンで即時に確定します）
 6. シンボリックリンクの作成
 ```bash
 php artisan storage:link
@@ -86,7 +86,7 @@ php artisan test
 
 GitHub Actions（`.github/workflows/test.yml`）でも、push・プルリクエストごとにPHP 7.4 + MySQL 8.0環境で同じテストを実行しています。
 
-Feature配下に主要機能を検証するテストを11本用意しています（直下8本：商品一覧・出品・いいね・コメント・購入・支払い方法・配送先住所・プロフィール、Auth配下3本：ログイン・ログアウト・会員登録）。
+Feature配下に主要機能を検証するテストを12本用意しています（直下9本：商品一覧・出品・いいね・コメント・購入・支払い方法・カード決済（Stripeはモック）・配送先住所・プロフィール、Auth配下3本：ログイン・ログアウト・会員登録）。
 
 ## 主要ページ
 
