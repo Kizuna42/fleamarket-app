@@ -69,32 +69,39 @@ class PurchaseController extends Controller
     public function store(Request $request, Item $item)
     {
         $user = auth()->user();
-        if ($item->user_id === $user->id) {
-            return response()->json([
-                'message' => '自分の出品した商品は購入できません。'
-            ], 403);
+
+        // 同時リクエストによる二重購入を防ぐため、商品行をロックした上で判定・更新する
+        $error = DB::transaction(function () use ($request, $item, $user) {
+            $lockedItem = Item::whereKey($item->id)->lockForUpdate()->first();
+
+            if ($lockedItem->user_id === $user->id) {
+                return '自分の出品した商品は購入できません。';
+            }
+
+            if ($lockedItem->is_sold) {
+                return 'この商品は既に売り切れです。';
+            }
+
+            Purchase::create([
+                'user_id' => $user->id,
+                'item_id' => $lockedItem->id,
+                'price' => $lockedItem->price,
+                'payment_method' => $request->input('payment_method'),
+                'postal_code' => $user->postal_code,
+                'address' => $user->address,
+                'building_name' => $user->building_name,
+                'status' => 'completed'
+            ]);
+
+            // 商品を売り切れ状態に更新
+            $lockedItem->update(['is_sold' => true]);
+
+            return null;
+        });
+
+        if ($error !== null) {
+            return response()->json(['message' => $error], 403);
         }
-
-        if ($item->is_sold) {
-            return response()->json([
-                'message' => 'この商品は既に売り切れです。'
-            ], 403);
-        }
-
-        // 購入処理
-        Purchase::create([
-            'user_id' => $user->id,
-            'item_id' => $item->id,
-            'price' => $item->price,
-            'payment_method' => $request->input('payment_method'),
-            'postal_code' => $user->postal_code,
-            'address' => $user->address,
-            'building_name' => $user->building_name,
-            'status' => 'completed'
-        ]);
-
-        // 商品を売り切れ状態に更新
-        $item->update(['is_sold' => true]);
 
         return redirect()->route('purchases.success', ['item' => $item->id]);
     }
