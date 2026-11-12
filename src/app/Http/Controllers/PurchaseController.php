@@ -244,9 +244,19 @@ class PurchaseController extends Controller
                 $error = $this->completePurchase($user, $item, Purchase::PAYMENT_CREDIT_CARD);
 
                 if ($error !== null) {
+                    // 決済後に他の購入者が先に確定した場合など、支払い済みのまま購入できないときは返金する
                     Log::error("Paid Stripe session {$sessionId} could not be completed: {$error}");
+
+                    try {
+                        $stripe->refund((string) $session->payment_intent, $sessionId);
+                        $message = $error . ' お支払いは返金手続きを行いました。';
+                    } catch (\Exception $e) {
+                        Log::critical("Refund for Stripe session {$sessionId} failed: " . $e->getMessage());
+                        $message = $error . ' 返金処理に失敗しました。お手数ですがお問い合わせください。';
+                    }
+
                     return redirect()->route('items.show', $item)
-                        ->with('error', $error);
+                        ->with('error', $message);
                 }
             }
         }

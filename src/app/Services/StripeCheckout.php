@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Stripe\Checkout\Session;
+use Stripe\Refund;
 use Stripe\StripeClient;
 
 /**
@@ -24,5 +25,16 @@ class StripeCheckout
     public function retrieveSession(string $sessionId): Session
     {
         return $this->client()->checkout->sessions->retrieve($sessionId);
+    }
+
+    /**
+     * 決済を全額返金する。同じセッションに対する再実行で二重返金しないよう冪等キーを付ける。
+     */
+    public function refund(string $paymentIntentId, string $sessionId): Refund
+    {
+        return $this->client()->refunds->create(
+            ['payment_intent' => $paymentIntentId],
+            ['idempotency_key' => 'refund-' . $sessionId]
+        );
     }
 }
