@@ -250,6 +250,16 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // サーバーから返された値をHTMLに埋め込む前にエスケープする（XSS対策）
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     if (commentForm) {
         commentForm.addEventListener('submit', async function(e) {
             e.preventDefault();
@@ -280,18 +290,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         <div class="d-flex align-items-start">
                             <div class="me-2">
                                 ${data.user_avatar
-                                    ? `<img src="/storage/${data.user_avatar}" alt="${data.user_name}" class="rounded-circle" style="width: 40px; height: 40px; object-fit: cover;">`
+                                    ? `<img src="/storage/${escapeHtml(data.user_avatar)}" alt="${escapeHtml(data.user_name)}" class="rounded-circle" style="width: 40px; height: 40px; object-fit: cover;">`
                                     : `<div class="bg-secondary text-white rounded-circle d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
-                                        <span>${data.user_name.charAt(0)}</span>
+                                        <span>${escapeHtml(data.user_name.charAt(0))}</span>
                                     </div>`
                                 }
                             </div>
                             <div class="flex-grow-1">
                                 <div class="commenter-info">
-                                    <strong>${data.user_name}</strong>
-                                    <small class="text-muted ms-2">${data.created_at}</small>
+                                    <strong>${escapeHtml(data.user_name)}</strong>
+                                    <small class="text-muted ms-2">${escapeHtml(data.created_at)}</small>
                                 </div>
-                                <p class="comment-text mb-0">${data.content}</p>
+                                <p class="comment-text mb-0">${escapeHtml(data.content)}</p>
                             </div>
                         </div>
                     </div>
