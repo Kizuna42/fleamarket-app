@@ -56,7 +56,7 @@ composer install
 cp .env.example .env
 php artisan key:generate
 ```
-※`.env`のDB接続情報を必要に応じて以下のように変更してください
+※`.env.example`のDB接続情報は`docker-compose.yml`の設定（以下）に合わせてあります。DB設定を変更した場合は`.env`も合わせて修正してください
 ```dotenv
 DB_CONNECTION=mysql
 DB_HOST=mysql
@@ -65,6 +65,7 @@ DB_DATABASE=laravel_db
 DB_USERNAME=laravel_user
 DB_PASSWORD=laravel_pass
 ```
+※クレジットカード決済（Stripe）を利用する場合は、`.env`の`STRIPE_KEY`・`STRIPE_SECRET`にStripeのテスト用キーを設定してください
 6. シンボリックリンクの作成
 ```bash
 php artisan storage:link
@@ -82,6 +83,8 @@ phpコンテナ上で実行してください
 ```bash
 php artisan test
 ```
+
+GitHub Actions（`.github/workflows/test.yml`）でも、push・プルリクエストごとにPHP 7.4 + MySQL 8.0環境で同じテストを実行しています。
 
 Feature配下に主要機能を検証するテストを11本用意しています（直下8本：商品一覧・出品・いいね・コメント・購入・支払い方法・配送先住所・プロフィール、Auth配下3本：ログイン・ログアウト・会員登録）。
 
