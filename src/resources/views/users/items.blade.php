@@ -29,7 +29,6 @@
                     <div class="card-footer bg-transparent">
                         <div class="d-grid gap-2">
                             <a href="{{ route('items.show', $item->id) }}" class="btn btn-outline-primary">商品詳細</a>
-                            <a href="{{ route('items.edit', $item->id) }}" class="btn btn-outline-secondary">編集する</a>
                         </div>
                     </div>
                 </div>

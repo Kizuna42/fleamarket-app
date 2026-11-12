@@ -4,11 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Models\Item;
 use App\Models\Purchase;
+use App\Models\User;
+use App\Services\StripeCheckout;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Stripe\Stripe;
-use Stripe\Checkout\Session;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class PurchaseController extends Controller
@@ -43,7 +45,7 @@ class PurchaseController extends Controller
     {
         try {
             $validated = $request->validate([
-                'payment_method' => 'required|in:credit_card,bank_transfer,convenience_store',
+                'payment_method' => ['required', Rule::in(array_keys(Purchase::PAYMENT_METHODS))],
             ], [
                 'payment_method.required' => '支払い方法を選択してください',
                 'payment_method.in' => '無効な支払い方法です',
@@ -55,7 +57,7 @@ class PurchaseController extends Controller
             return response()->json([
                 'payment_method' => $validated['payment_method']
             ]);
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (ValidationException $e) {
             return response()->json([
                 'message' => '無効な支払い方法です',
                 'errors' => $e->errors(),
@@ -64,14 +66,37 @@ class PurchaseController extends Controller
     }
 
     /**
-     * 商品を購入
+     * 商品を購入（コンビニ払い）
+     *
+     * クレジットカード払いは createSession で Stripe Checkout を経由し、
+     * 決済完了後に success で購入を確定する。
      */
     public function store(Request $request, Item $item)
     {
-        $user = auth()->user();
+        $validated = $request->validate([
+            'payment_method' => ['required', Rule::in([Purchase::PAYMENT_CONVENIENCE_STORE])],
+        ], [
+            'payment_method.required' => '支払い方法を選択してください',
+            'payment_method.in' => 'クレジットカード払いは決済画面から手続きしてください',
+        ]);
 
+        $error = $this->completePurchase(auth()->user(), $item, $validated['payment_method']);
+
+        if ($error !== null) {
+            return response()->json(['message' => $error], 403);
+        }
+
+        return redirect()->route('purchases.success', ['item' => $item->id]);
+    }
+
+    /**
+     * 商品行をロックした上で購入可否を判定し、購入を確定する。
+     * 購入できない場合はエラーメッセージを返す。
+     */
+    private function completePurchase(User $user, Item $item, string $paymentMethod): ?string
+    {
         // 同時リクエストによる二重購入を防ぐため、商品行をロックした上で判定・更新する
-        $error = DB::transaction(function () use ($request, $item, $user) {
+        return DB::transaction(function () use ($item, $user, $paymentMethod) {
             $lockedItem = Item::whereKey($item->id)->lockForUpdate()->first();
 
             if ($lockedItem->user_id === $user->id) {
@@ -86,7 +111,7 @@ class PurchaseController extends Controller
                 'user_id' => $user->id,
                 'item_id' => $lockedItem->id,
                 'price' => $lockedItem->price,
-                'payment_method' => $request->input('payment_method'),
+                'payment_method' => $paymentMethod,
                 'postal_code' => $user->postal_code,
                 'address' => $user->address,
                 'building_name' => $user->building_name,
@@ -98,12 +123,6 @@ class PurchaseController extends Controller
 
             return null;
         });
-
-        if ($error !== null) {
-            return response()->json(['message' => $error], 403);
-        }
-
-        return redirect()->route('purchases.success', ['item' => $item->id]);
     }
 
     /**
@@ -141,12 +160,21 @@ class PurchaseController extends Controller
             ->with('success', '配送先住所を更新しました。');
     }
 
-    public function createSession(Item $item)
+    /**
+     * クレジットカード払い用の Stripe Checkout セッションを作成する
+     */
+    public function createSession(Item $item, StripeCheckout $stripe)
     {
-        try {
-            Stripe::setApiKey(config('services.stripe.secret'));
+        if ($item->user_id === Auth::id()) {
+            return response()->json(['error' => '自分の出品した商品は購入できません。'], 403);
+        }
 
-            $session = Session::create([
+        if ($item->is_sold) {
+            return response()->json(['error' => 'この商品は既に売り切れです。'], 403);
+        }
+
+        try {
+            $session = $stripe->createSession([
                 'payment_method_types' => ['card'],
                 'line_items' => [[
                     'price_data' => [
@@ -159,19 +187,70 @@ class PurchaseController extends Controller
                     'quantity' => 1,
                 ]],
                 'mode' => 'payment',
-                'success_url' => route('purchases.success', $item),
+                'client_reference_id' => (string) Auth::id(),
+                'metadata' => [
+                    'item_id' => (string) $item->id,
+                    'user_id' => (string) Auth::id(),
+                ],
+                // {CHECKOUT_SESSION_ID} は Stripe 側で実際のセッション ID に置き換えられる
+                'success_url' => route('purchases.success', $item) . '?session_id={CHECKOUT_SESSION_ID}',
                 'cancel_url' => route('purchases.show', $item),
             ]);
 
-            return response()->json(['id' => $session->id]);
+            return response()->json(['id' => $session->id, 'url' => $session->url]);
         } catch (\Exception $e) {
-            \Log::error('Stripe session creation failed: ' . $e->getMessage());
+            Log::error('Stripe session creation failed: ' . $e->getMessage());
             return response()->json(['error' => '決済処理の準備中にエラーが発生しました。'], 500);
         }
     }
 
-    public function success(Item $item)
+    /**
+     * 購入完了
+     *
+     * Stripe Checkout からの戻り（session_id 付き）の場合は、決済状態を Stripe に
+     * 問い合わせて確認してから購入を確定する。
+     */
+    public function success(Request $request, Item $item, StripeCheckout $stripe)
     {
+        $sessionId = $request->query('session_id');
+
+        if (is_string($sessionId) && $sessionId !== '') {
+            $user = Auth::user();
+
+            $alreadyPurchased = Purchase::where('user_id', $user->id)
+                ->where('item_id', $item->id)
+                ->exists();
+
+            if (!$alreadyPurchased) {
+                try {
+                    $session = $stripe->retrieveSession($sessionId);
+                } catch (\Exception $e) {
+                    Log::error('Stripe session retrieval failed: ' . $e->getMessage());
+                    return redirect()->route('purchases.show', $item)
+                        ->with('error', '決済結果の確認に失敗しました。');
+                }
+
+                $metadata = $session->metadata;
+                $isValidSession = $session->payment_status === 'paid'
+                    && $metadata !== null
+                    && (string) ($metadata['item_id'] ?? '') === (string) $item->id
+                    && (string) ($metadata['user_id'] ?? '') === (string) $user->id;
+
+                if (!$isValidSession) {
+                    return redirect()->route('purchases.show', $item)
+                        ->with('error', '決済が完了していません。');
+                }
+
+                $error = $this->completePurchase($user, $item, Purchase::PAYMENT_CREDIT_CARD);
+
+                if ($error !== null) {
+                    Log::error("Paid Stripe session {$sessionId} could not be completed: {$error}");
+                    return redirect()->route('items.show', $item)
+                        ->with('error', $error);
+                }
+            }
+        }
+
         return redirect()->route('items.index')
             ->with('success', '商品の購入が完了しました。');
     }

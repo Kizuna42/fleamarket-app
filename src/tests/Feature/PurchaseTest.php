@@ -33,7 +33,7 @@ class PurchaseTest extends TestCase
     {
         $response = $this->actingAs($this->buyer)
             ->post("/purchase/{$this->item->id}", [
-                'price' => $this->item->price,
+                'payment_method' => 'convenience_store',
             ]);
 
         $response->assertStatus(302)
@@ -47,7 +47,7 @@ class PurchaseTest extends TestCase
         $this->assertDatabaseHas('purchases', [
             'user_id' => $this->buyer->id,
             'item_id' => $this->item->id,
-            'price' => $this->item->price,
+            'payment_method' => 'convenience_store',
         ]);
     }
 
@@ -57,7 +57,7 @@ class PurchaseTest extends TestCase
         // 商品を購入
         $this->actingAs($this->buyer)
             ->post("/purchase/{$this->item->id}", [
-                'price' => $this->item->price,
+                'payment_method' => 'convenience_store',
             ]);
 
         // 商品一覧画面を表示
@@ -73,7 +73,7 @@ class PurchaseTest extends TestCase
         // 商品を購入
         $this->actingAs($this->buyer)
             ->post("/purchase/{$this->item->id}", [
-                'price' => $this->item->price,
+                'payment_method' => 'convenience_store',
             ]);
 
         // プロフィール画面の購入商品一覧を表示
@@ -88,7 +88,7 @@ class PurchaseTest extends TestCase
     public function 未認証ユーザーは商品を購入できない()
     {
         $response = $this->post("/purchase/{$this->item->id}", [
-            'price' => $this->item->price,
+            'payment_method' => 'convenience_store',
         ]);
 
         $response->assertStatus(302)
@@ -104,7 +104,7 @@ class PurchaseTest extends TestCase
     {
         $response = $this->actingAs($this->seller)
             ->post("/purchase/{$this->item->id}", [
-                'price' => $this->item->price,
+                'payment_method' => 'convenience_store',
             ]);
 
         $response->assertStatus(403);
@@ -122,7 +122,7 @@ class PurchaseTest extends TestCase
 
         $response = $this->actingAs($this->buyer)
             ->post("/purchase/{$this->item->id}", [
-                'price' => $this->item->price,
+                'payment_method' => 'convenience_store',
             ]);
 
         $response->assertStatus(403);

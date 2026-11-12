@@ -29,9 +29,13 @@
                     <h4 class="mb-4 section-title">支払い方法</h4>
                     <select class="form-select form-select-lg border-0 ps-0" id="payment_method" name="payment_method" required>
                         <option value="" selected disabled>選択してください</option>
-                        <option value="convenience">コンビニ決済</option>
-                        <option value="credit">クレジットカード</option>
+                        @foreach(\App\Models\Purchase::PAYMENT_METHODS as $value => $label)
+                            <option value="{{ $value }}" @if(old('payment_method') === $value) selected @endif>{{ $label }}</option>
+                        @endforeach
                     </select>
+                    @error('payment_method')
+                        <div class="text-danger mt-2">{{ $message }}</div>
+                    @enderror
                 </div>
 
                 <!-- 配送先 -->
@@ -138,87 +142,64 @@
 </style>
 
 @push('scripts')
-<script src="https://js.stripe.com/v3/"></script>
 <script>
-// DOMの読み込みを待つ
 window.addEventListener('load', function() {
-    // 要素の取得
     const form = document.getElementById('purchase-form');
     const select = document.getElementById('payment_method');
     const button = document.getElementById('purchase-button');
     const paymentDisplay = document.getElementById('selected-payment');
 
+    // 支払い方法の値はサーバー側の定数（App\Models\Purchase）と共通
+    const CREDIT_CARD = @json(\App\Models\Purchase::PAYMENT_CREDIT_CARD);
+    const createSessionUrl = @json(route('purchases.create-session', $item));
+    const csrfToken = @json(csrf_token());
+
     // 住所の状態
     const hasValidAddress = {{ auth()->user()->postal_code && auth()->user()->address ? 'true' : 'false' }};
 
-    // デバッグ用ログ
-    console.log('初期状態:', {
-        'フォーム': form ? '存在します' : '見つかりません',
-        'セレクト': select ? '存在します' : '見つかりません',
-        'ボタン': button ? '存在します' : '見つかりません',
-        '住所': hasValidAddress ? '登録済み' : '未登録'
-    });
+    function refreshButton() {
+        button.disabled = !(hasValidAddress && select.value);
+    }
 
-    // セレクトの変更イベント
-    select.addEventListener('change', function() {
-        const selectedOption = this.options[this.selectedIndex];
-
-        // 選択された支払い方法を表示
-        paymentDisplay.textContent = selectedOption.text;
-
-        // ボタンの有効化
-        if (hasValidAddress && this.value) {
-            button.disabled = false;
-            console.log('ボタンを有効化しました');
-        } else {
-            button.disabled = true;
-            console.log('ボタンを無効化しました');
+    function refreshSelection() {
+        if (select.value) {
+            paymentDisplay.textContent = select.options[select.selectedIndex].text;
         }
-    });
+        refreshButton();
+    }
 
-    // フォームの送信
+    select.addEventListener('change', refreshSelection);
+    refreshSelection();
+
+    // カード払いは Stripe Checkout へリダイレクト、コンビニ払いはそのままフォーム送信で購入確定
     form.addEventListener('submit', async function(event) {
+        if (select.value !== CREDIT_CARD) {
+            return;
+        }
+
         event.preventDefault();
+        button.disabled = true;
 
-        const paymentMethod = select.value;
-        console.log('送信開始:', paymentMethod);
-
-        if (paymentMethod === 'credit') {
-            button.disabled = true;
-
-            try {
-                const response = await fetch('{{ route('purchases.store', $item) }}', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                    },
-                    body: JSON.stringify({ payment_method: paymentMethod })
-                });
-
-                const data = await response.json();
-
-                if (data.error) {
-                    alert(data.error);
-                    button.disabled = false;
-                    return;
+        try {
+            const response = await fetch(createSessionUrl, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken
                 }
+            });
+            const data = await response.json();
 
-                const stripe = Stripe('{{ config('services.stripe.key') }}');
-                const result = await stripe.redirectToCheckout({
-                    sessionId: data.sessionId
-                });
-
-                if (result.error) {
-                    alert(result.error.message);
-                    button.disabled = false;
-                }
-            } catch (error) {
-                alert('決済処理中にエラーが発生しました。');
-                button.disabled = false;
+            if (!response.ok || !data.url) {
+                alert(data.error || '決済処理の準備中にエラーが発生しました。');
+                refreshButton();
+                return;
             }
-        } else {
-            form.submit();
+
+            window.location.href = data.url;
+        } catch (error) {
+            alert('決済処理中にエラーが発生しました。');
+            refreshButton();
         }
     });
 });

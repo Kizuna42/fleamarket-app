@@ -178,35 +178,4 @@ class ItemController extends Controller
                 ->with('error', '商品の出品に失敗しました。もう一度お試しください。');
         }
     }
-
-    public function edit(Item $item)
-    {
-        $categories = Category::getParentCategories();
-        return view('items.edit', compact('item', 'categories'));
-    }
-
-    public function update(Request $request, Item $item)
-    {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'description' => 'required|string',
-            'price' => 'required|integer|min:1',
-            'condition' => 'required|integer',
-            'categories' => 'required|array|min:1',
-            'categories.*' => 'exists:categories,id',
-        ]);
-
-        $item->update([
-            'name' => $validated['name'],
-            'description' => $validated['description'],
-            'price' => $validated['price'],
-            'condition' => $validated['condition'],
-        ]);
-
-        // カテゴリーを更新
-        $item->categories()->sync($validated['categories']);
-
-        return redirect()->route('items.show', $item)
-            ->with('success', '商品情報を更新しました。');
-    }
 }

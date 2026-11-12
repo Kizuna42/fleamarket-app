@@ -62,7 +62,7 @@ class ShippingAddressTest extends TestCase
         // 商品を購入
         $response = $this->actingAs($this->user)
             ->post("/purchase/{$this->item->id}", [
-                'payment_method' => 'credit',
+                'payment_method' => 'convenience_store',
             ]);
 
         $response->assertStatus(302)

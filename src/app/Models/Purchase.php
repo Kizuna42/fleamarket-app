@@ -9,6 +9,15 @@ class Purchase extends Model
 {
     use HasFactory;
 
+    // 支払い方法（フロント・サーバー共通の値）
+    public const PAYMENT_CONVENIENCE_STORE = 'convenience_store';
+    public const PAYMENT_CREDIT_CARD = 'credit_card';
+
+    public const PAYMENT_METHODS = [
+        self::PAYMENT_CONVENIENCE_STORE => 'コンビニ払い',
+        self::PAYMENT_CREDIT_CARD => 'クレジットカード',
+    ];
+
     protected $fillable = [
         'user_id',
         'item_id',
