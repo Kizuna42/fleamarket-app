@@ -24,6 +24,7 @@ class Purchase extends Model
         'price',
         'status',
         'payment_method',
+        'stripe_session_id',
         'postal_code',
         'prefecture',
         'city',

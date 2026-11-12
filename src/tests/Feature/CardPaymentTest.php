@@ -152,6 +152,7 @@ class CardPaymentTest extends TestCase
             'item_id' => $this->item->id,
             'price' => 3000,
             'payment_method' => Purchase::PAYMENT_CREDIT_CARD,
+            'stripe_session_id' => 'cs_test_123',
             'postal_code' => '1234567',
         ]);
         $this->assertDatabaseHas('items', ['id' => $this->item->id, 'is_sold' => true]);
@@ -188,6 +189,32 @@ class CardPaymentTest extends TestCase
             'item_id' => $this->item->id,
         ]);
         $this->assertSame(1, Purchase::where('item_id', $this->item->id)->count());
+    }
+
+    /** @test */
+    public function 同じ購入者の2つ目の決済セッションは返金する()
+    {
+        $this->mock(StripeCheckout::class, function ($mock) {
+            $mock->shouldReceive('retrieveSession')->once()->with('cs_test_123')->andReturn($this->paidSession());
+            $mock->shouldReceive('retrieveSession')->once()->with('cs_test_456')->andReturn($this->paidSession([
+                'id' => 'cs_test_456',
+                'payment_intent' => 'pi_test_456',
+            ]));
+            $mock->shouldReceive('refund')->once()->with('pi_test_456', 'cs_test_456')
+                ->andReturn(\Stripe\Refund::constructFrom(['id' => 're_test_456']));
+        });
+
+        $this->actingAs($this->buyer)
+            ->get(route('purchases.success', $this->item) . '?session_id=cs_test_123')
+            ->assertRedirect(route('items.index'));
+
+        $this->actingAs($this->buyer)
+            ->get(route('purchases.success', $this->item) . '?session_id=cs_test_456')
+            ->assertRedirect(route('items.show', $this->item))
+            ->assertSessionHas('error');
+
+        $this->assertSame(1, Purchase::where('item_id', $this->item->id)->count());
+        $this->assertDatabaseHas('purchases', ['item_id' => $this->item->id, 'stripe_session_id' => 'cs_test_123']);
     }
 
     /** @test */

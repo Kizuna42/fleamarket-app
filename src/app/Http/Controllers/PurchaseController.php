@@ -93,11 +93,16 @@ class PurchaseController extends Controller
      * 商品行をロックした上で購入可否を判定し、購入を確定する。
      * 購入できない場合はエラーメッセージを返す。
      */
-    private function completePurchase(User $user, Item $item, string $paymentMethod): ?string
+    private function completePurchase(User $user, Item $item, string $paymentMethod, ?string $stripeSessionId = null): ?string
     {
         // 同時リクエストによる二重購入を防ぐため、商品行をロックした上で判定・更新する
-        return DB::transaction(function () use ($item, $user, $paymentMethod) {
+        return DB::transaction(function () use ($item, $user, $paymentMethod, $stripeSessionId) {
             $lockedItem = Item::whereKey($item->id)->lockForUpdate()->first();
+
+            // 同じ Checkout セッションの戻りが同時に処理された場合は、先に確定した側を正とし冪等に成功させる
+            if ($stripeSessionId !== null && Purchase::where('stripe_session_id', $stripeSessionId)->exists()) {
+                return null;
+            }
 
             if ($lockedItem->user_id === $user->id) {
                 return '自分の出品した商品は購入できません。';
@@ -112,6 +117,7 @@ class PurchaseController extends Controller
                 'item_id' => $lockedItem->id,
                 'price' => $lockedItem->price,
                 'payment_method' => $paymentMethod,
+                'stripe_session_id' => $stripeSessionId,
                 'postal_code' => $user->postal_code,
                 'address' => $user->address,
                 'building_name' => $user->building_name,
@@ -217,11 +223,12 @@ class PurchaseController extends Controller
         if (is_string($sessionId) && $sessionId !== '') {
             $user = Auth::user();
 
-            $alreadyPurchased = Purchase::where('user_id', $user->id)
-                ->where('item_id', $item->id)
+            // このセッションで既に購入が確定していれば（再読み込み等）、そのまま完了とする
+            $alreadyProcessed = Purchase::where('stripe_session_id', $sessionId)
+                ->where('user_id', $user->id)
                 ->exists();
 
-            if (!$alreadyPurchased) {
+            if (!$alreadyProcessed) {
                 try {
                     $session = $stripe->retrieveSession($sessionId);
                 } catch (\Exception $e) {
@@ -241,10 +248,11 @@ class PurchaseController extends Controller
                         ->with('error', '決済が完了していません。');
                 }
 
-                $error = $this->completePurchase($user, $item, Purchase::PAYMENT_CREDIT_CARD);
+                $error = $this->completePurchase($user, $item, Purchase::PAYMENT_CREDIT_CARD, $sessionId);
 
                 if ($error !== null) {
-                    // 決済後に他の購入者が先に確定した場合など、支払い済みのまま購入できないときは返金する
+                    // 決済後に他の購入者（または同じ購入者の別の決済）で先に購入が確定した場合など、
+                    // このセッションの支払いで購入できないときは返金する
                     Log::error("Paid Stripe session {$sessionId} could not be completed: {$error}");
 
                     try {
